@@ -3,15 +3,8 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-# Configuración de la página para que se vea bien en el celular
-st.set_page_config(page_title="Rulos Cripto", page_icon="💸", layout="centered")
-
-def obtener_mep():
-    try:
-        url = "https://dolarapi.com/v1/dolares/mep"
-        return requests.get(url, timeout=5).json()['venta']
-    except:
-        return None
+# Configuración para el celular
+st.set_page_config(page_title="Arbitraje P2P", page_icon="⚖️", layout="centered")
 
 def obtener_mercado_cripto(moneda, volumen):
     try:
@@ -20,95 +13,91 @@ def obtener_mercado_cripto(moneda, volumen):
     except:
         return {}
 
-def buscar_oportunidades(capital):
-    mep = obtener_mep()
+def buscar_cruces_p2p(capital):
     usdt = obtener_mercado_cripto("usdt", capital)
     usdc = obtener_mercado_cripto("usdc", capital)
 
-    estrategias_cripto = []
-    estrategias_mep = []
+    estrategias = []
     mercados = {'USDT': usdt, 'USDC': usdc}
+    # Filtramos exclusivamente estos dos gigantes
+    exchanges_objetivo = ['binancep2p', 'bitgetp2p']
 
-    # 1. RULOS PURO PESOS
     for moneda, datos in mercados.items():
         if not datos: continue
-        exchanges = list(datos.keys())
-        for ex_compra in exchanges:
-            for ex_venta in exchanges:
-                if ex_compra == ex_venta: continue
+        
+        for ex_compra in exchanges_objetivo:
+            for ex_venta in exchanges_objetivo:
+                if ex_compra == ex_venta: continue # No compramos y vendemos en el mismo
+                
                 try:
                     compra = datos[ex_compra]['ask']
                     venta = datos[ex_venta]['bid']
+                    
                     if compra <= 0 or venta <= 0: continue
                     
                     spread = (venta / compra - 1) * 100
-                    if 1.0 <= spread < 20.0: 
-                        estrategias_cripto.append({
-                            "Moneda": moneda,
-                            "Compro": ex_compra.replace('p2p', ' P2P').capitalize(),
-                            "Vendo": ex_venta.replace('p2p', ' P2P').capitalize(),
-                            "Invierto": f"${compra:,.2f}",
-                            "Retiro": f"${venta:,.2f}",
-                            "Ganancia": ((capital / compra) * venta) - capital,
-                            "Spread (%)": round(spread, 2)
-                        })
-                except KeyError:
-                    pass
-
-    # 2. RULOS DESDE MEP
-    if mep:
-        for moneda, datos in mercados.items():
-            if not datos: continue
-            for ex_venta in list(datos.keys()):
-                try:
-                    venta = datos[ex_venta]['bid']
-                    if venta <= 0: continue
+                    ganancia = ((capital / compra) * venta) - capital
                     
-                    spread = (venta / mep - 1) * 100
-                    if 1.0 <= spread < 20.0:
-                        estrategias_mep.append({
-                            "Moneda": moneda,
-                            "Compro": "MEP Broker",
-                            "Vendo": ex_venta.replace('p2p', ' P2P').capitalize(),
-                            "Invierto": f"${mep:,.2f}",
-                            "Retiro": f"${venta:,.2f}",
-                            "Ganancia": ((capital / mep) * venta) - capital,
-                            "Spread (%)": round(spread, 2)
-                        })
+                    estrategias.append({
+                        "Moneda": moneda,
+                        "Compro en": ex_compra.replace('p2p', ' P2P').capitalize(),
+                        "Vendo en": ex_venta.replace('p2p', ' P2P').capitalize(),
+                        "Precio Compra": compra,
+                        "Precio Venta": venta,
+                        "Ganancia": ganancia,
+                        "Spread (%)": round(spread, 2)
+                    })
                 except KeyError:
                     pass
+                    
+    return estrategias, usdt, usdc
 
-    return estrategias_cripto, estrategias_mep, mep
+# --- INTERFAZ VISUAL ---
 
-# --- INTERFAZ GRÁFICA DE STREAMLIT ---
-
-st.title("📊 Dashboard de Arbitraje")
+st.title("⚖️ P2P: Binance vs Bitget")
 st.write(f"Última actualización: **{datetime.now().strftime('%H:%M:%S')}**")
 
-# Controles interactivos
-capital_usuario = st.number_input("Capital a invertir ($ ARS):", min_value=10000, value=100000, step=10000)
+capital_usuario = st.number_input("Capital a mover ($ ARS):", min_value=10000, value=100000, step=10000)
 
-if st.button("🔄 Escanear Mercado Ahora", type="primary"):
-    with st.spinner("Buscando las mejores cotizaciones..."):
-        cripto, mep_rulo, valor_mep = buscar_oportunidades(capital_usuario)
+if st.button("🔄 Escanear P2P Ahora", type="primary"):
+    with st.spinner("Comparando puntas en Binance y Bitget..."):
+        estrategias, usdt_data, usdc_data = buscar_cruces_p2p(capital_usuario)
         
-        # Métrica rápida del MEP
-        if valor_mep:
-            st.metric(label="Cotización Dólar MEP", value=f"${valor_mep}")
-
-        # Mostrar Tabla de Cripto
-        st.subheader("🔁 Arbitraje Cripto a Cripto (Solo Pesos)")
-        if cripto:
-            df_cripto = pd.DataFrame(cripto).sort_values(by="Ganancia", ascending=False)
-            # Formato visual de la tabla
-            st.dataframe(df_cripto.style.format({"Ganancia": "${:,.2f}"}).background_gradient(subset=["Spread (%)"], cmap="Greens"), use_container_width=True)
+        # 1. Mostrar la tabla de rulos posibles
+        st.subheader("🔁 Cruces Disponibles")
+        if estrategias:
+            df = pd.DataFrame(estrategias).sort_values(by="Ganancia", ascending=False)
+            
+            # Dejamos que se pinten de rojo los negativos para que veas la realidad del mercado
+            st.dataframe(
+                df.style.format({
+                    "Precio Compra": "${:,.2f}", 
+                    "Precio Venta": "${:,.2f}", 
+                    "Ganancia": "${:,.2f}"
+                }).background_gradient(subset=["Spread (%)"], cmap="RdYlGn"), 
+                use_container_width=True
+            )
         else:
-            st.info("Sin oportunidades mayores al 1% en este momento.")
+            st.warning("No hay datos suficientes de las APIs en este momento.")
 
-        # Mostrar Tabla MEP
-        st.subheader("💵 Rulo MEP a Cripto")
-        if mep_rulo:
-            df_mep = pd.DataFrame(mep_rulo).sort_values(by="Ganancia", ascending=False)
-            st.dataframe(df_mep.style.format({"Ganancia": "${:,.2f}"}).background_gradient(subset=["Spread (%)"], cmap="Greens"), use_container_width=True)
-        else:
-            st.info("Sin oportunidades mayores al 1% en este momento.")
+        # 2. Pizarra de referencia rápida
+        st.divider()
+        st.subheader("📊 Pizarra Cruda (Referencia)")
+        st.caption("Precio de Compra (Lo que pagás) | Precio de Venta (Lo que recibís)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("🟡 **USDT**")
+            try: st.write(f"**Binance:** \nCompra ${usdt_data['binancep2p']['ask']} \nVenta ${usdt_data['binancep2p']['bid']}") 
+            except: pass
+            st.write("---")
+            try: st.write(f"**Bitget:** \nCompra ${usdt_data['bitgetp2p']['ask']} \nVenta ${usdt_data['bitgetp2p']['bid']}")
+            except: pass
+            
+        with col2:
+            st.markdown("🔵 **USDC**")
+            try: st.write(f"**Binance:** \nCompra ${usdc_data['binancep2p']['ask']} \nVenta ${usdc_data['binancep2p']['bid']}")
+            except: pass
+            st.write("---")
+            try: st.write(f"**Bitget:** \nCompra ${usdc_data['bitgetp2p']['ask']} \nVenta ${usdc_data['bitgetp2p']['bid']}")
+            except: pass
