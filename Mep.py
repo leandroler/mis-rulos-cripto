@@ -1,9 +1,10 @@
 import streamlit as st
 import requests
+import pandas as pd
 from datetime import datetime
 
 # Configuración para el celular
-st.set_page_config(page_title="Cara a Cara P2P", page_icon="🥊", layout="centered")
+st.set_page_config(page_title="Radar Cripto", page_icon="🌍", layout="centered")
 
 def obtener_mercado(moneda, volumen):
     try:
@@ -12,74 +13,83 @@ def obtener_mercado(moneda, volumen):
     except:
         return {}
 
-st.title("🥊 Binance vs Bitget")
+st.title("🌍 Radar Multi-Exchange")
 st.write(f"Actualizado: **{datetime.now().strftime('%H:%M:%S')}**")
 
 capital = st.number_input("Capital a mover ($ ARS):", min_value=10000, value=100000, step=10000)
 
-if st.button("🔄 Comparar Puntas", type="primary"):
-    with st.spinner("Buscando precios en el P2P..."):
+# Lista ampliada de plataformas a monitorear
+exchanges_monitor = [
+    'binancep2p', 'bitgetp2p', 'kucoinp2p', 'okxp2p', 
+    'fiwind', 'lemoncash', 'belo', 'tiendacrypto', 'buenbit', 'letsbit'
+]
+
+if st.button("🔄 Escanear Todo el Mercado", type="primary"):
+    with st.spinner("Rastreando cotizaciones en 10+ plataformas..."):
         usdt = obtener_mercado("usdt", capital)
         usdc = obtener_mercado("usdc", capital)
         
-        def mostrar_comparacion(moneda, datos):
-            if not datos or 'binancep2p' not in datos or 'bitgetp2p' not in datos:
-                st.warning(f"Faltan datos de {moneda} en los exchanges en este momento.")
+        def analizar_y_mostrar(moneda, datos):
+            if not datos:
+                st.warning(f"No hay datos de {moneda} en este momento.")
                 return
             
-            bin_compra = datos['binancep2p']['ask']
-            bit_compra = datos['bitgetp2p']['ask']
-            bin_venta = datos['binancep2p']['bid']
-            bit_venta = datos['bitgetp2p']['bid']
+            # Filtramos solo los exchanges que nos interesan y que tengan datos válidos
+            mercado_filtrado = []
+            for ex, valores in datos.items():
+                if ex in exchanges_monitor and valores['ask'] > 0 and valores['bid'] > 0:
+                    mercado_filtrado.append({
+                        "Exchange": ex.replace('p2p', ' P2P').capitalize(),
+                        "Compra (Ask)": valores['ask'],
+                        "Venta (Bid)": valores['bid']
+                    })
+            
+            if not mercado_filtrado:
+                return
+
+            df = pd.DataFrame(mercado_filtrado)
+            
+            # Ordenamos para encontrar los mejores precios
+            top_compras = df.sort_values(by="Compra (Ask)", ascending=True).head(3)
+            top_ventas = df.sort_values(by="Venta (Bid)", ascending=False).head(3)
+            
+            # Datos de la mejor jugada
+            mejor_compra = top_compras.iloc[0]
+            mejor_venta = top_ventas.iloc[0]
+            
+            ganancia = (capital / mejor_compra['Compra (Ask)']) * mejor_venta['Venta (Bid)'] - capital
+            spread = (mejor_venta['Venta (Bid)'] / mejor_compra['Compra (Ask)'] - 1) * 100
 
             st.subheader(f"🪙 {moneda}")
             
+            # --- LA JUGADA MAESTRA ---
+            st.markdown("**⚡ La Mejor Ruta de Arbitraje:**")
+            if spread > 0:
+                st.success(f"1️⃣ Comprar en **{mejor_compra['Exchange']}** a ${mejor_compra['Compra (Ask)']:,.2f}\n"
+                           f"2️⃣ Vender en **{mejor_venta['Exchange']}** a ${mejor_venta['Venta (Bid)']:,.2f}\n"
+                           f"💰 **Ganancia Neta: ${ganancia:,.2f}** ({spread:.2f}%)")
+            else:
+                st.error(f"Mercado en rojo. La 'mejor' opción da pérdida:\n"
+                         f"Comprar en **{mejor_compra['Exchange']}** y Vender en **{mejor_venta['Exchange']}**\n"
+                         f"📉 **Pérdida: ${ganancia:,.2f}** ({spread:.2f}%)")
+
+            # --- EL PODIO VISUAL ---
             col1, col2 = st.columns(2)
             
-            # --- SECCIÓN COMPRA ---
             with col1:
-                st.markdown("### 🛒 COMPRA")
-                st.caption("Buscás el precio más BAJO")
-                st.write(f"**Binance:** ${bin_compra:,.2f}")
-                st.write(f"**Bitget:** ${bit_compra:,.2f}")
-                
-                if bin_compra < bit_compra:
-                    st.success(f"🏆 Gana Binance\n(Más barato por ${bit_compra - bin_compra:,.2f})")
-                elif bit_compra < bin_compra:
-                    st.success(f"🏆 Gana Bitget\n(Más barato por ${bin_compra - bit_compra:,.2f})")
-                else:
-                    st.info("🤝 Empate")
-
-            # --- SECCIÓN VENTA ---
+                st.markdown("### 🛒 Top 3 Compras")
+                st.caption("Los más baratos para entrar")
+                for i, row in top_compras.iterrows():
+                    st.write(f"**{row['Exchange']}:** ${row['Compra (Ask)']:,.2f}")
+                    
             with col2:
-                st.markdown("### 💸 VENTA")
-                st.caption("Buscás el precio más ALTO")
-                st.write(f"**Binance:** ${bin_venta:,.2f}")
-                st.write(f"**Bitget:** ${bit_venta:,.2f}")
-                
-                if bin_venta > bit_venta:
-                    st.success(f"🏆 Gana Binance\n(Paga más por ${bin_venta - bit_venta:,.2f})")
-                elif bit_venta > bin_venta:
-                    st.success(f"🏆 Gana Bitget\n(Paga más por ${bit_venta - bin_venta:,.2f})")
-                else:
-                    st.info("🤝 Empate")
+                st.markdown("### 💸 Top 3 Ventas")
+                st.caption("Los que más pagan al salir")
+                for i, row in top_ventas.iterrows():
+                    st.write(f"**{row['Exchange']}:** ${row['Venta (Bid)']:,.2f}")
             
-            # --- EL RULO IDEAL ---
-            mejor_compra = min(bin_compra, bit_compra)
-            mejor_venta = max(bin_venta, bit_venta)
-            lugar_compra = "Binance" if mejor_compra == bin_compra else "Bitget"
-            lugar_venta = "Binance" if mejor_venta == bin_venta else "Bitget"
-            
-            spread = (mejor_venta / mejor_compra - 1) * 100
-            ganancia = (capital / mejor_compra) * mejor_venta - capital
-            
-            st.markdown("**⚡ La Mejor Jugada Combinada:**")
-            if spread > 0:
-                st.info(f"Comprar en **{lugar_compra}** y Vender en **{lugar_venta}** \nGanancia Neta: **${ganancia:,.2f}** ({spread:.2f}%)")
-            else:
-                st.error(f"Comprar en **{lugar_compra}** y Vender en **{lugar_venta}** \nPérdida: **${ganancia:,.2f}** ({spread:.2f}%)")
             st.divider()
 
-        # Ejecutamos la función visual para ambas monedas
-        mostrar_comparacion("USDT", usdt)
-        mostrar_comparacion("USDC", usdc)
+        # Ejecutamos el análisis para USDT y USDC
+        analizar_y_mostrar("USDT", usdt)
+        analizar_y_mostrar("USDC", usdc)
